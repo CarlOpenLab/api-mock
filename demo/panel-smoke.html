@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>API Mock 面板冒烟</title>
+    <!-- 用的是构建产物里的那份样式，验证的是真正会被装进扩展的东西 -->
+    <link rel="stylesheet" href="/dist/assets/panel.css" />
+  </head>
+  <body>
+    <pre id="out" style="font: 12px ui-monospace, monospace; white-space: pre-wrap">running…</pre>
+
+    <!--
+      面板跑在 DevTools 里，依赖 chrome.devtools / chrome.storage / chrome.runtime。
+      这里把这三样打上桩，就能在普通页面里把构建出来的 panel.js 真跑起来——
+      能抓到「组件树里有个字段写错导致整页白屏」这类只在运行期才暴露的问题。
+    -->
+    <script src="/chrome-stub.js"></script>
+
+    <div id="root"></div>
+    <script type="module" src="/dist/panel.js"></script>
+    <script src="/panel-smoke.js"></script>
+  </body>
+</html>

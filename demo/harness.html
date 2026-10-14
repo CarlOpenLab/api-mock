@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>API Mock 端到端验证</title>
+  </head>
+  <body>
+    <pre id="out" style="font: 12px ui-monospace, monospace; white-space: pre-wrap">running…</pre>
+
+    <!--
+      扮演 background：bridge 会通过 chrome.runtime.connect 找它要配置。
+      有了这一层，下面加载的就是**构建产物**本身，而不是源码的另一份拷贝——
+      验证的是真正会被装进扩展的那个文件。
+    -->
+    <script>
+      window.__harness = {
+        config: { rules: [], enabled: true, captureBodies: true },
+        reports: [],
+        configured: false,
+      }
+
+      Object.defineProperty(window, 'chrome', {
+        configurable: true,
+        value: {
+          runtime: {
+            id: 'harness',
+            connect() {
+              const listeners = []
+              const port = {
+                name: 'api-mock-page',
+                postMessage(message) {
+                  window.__harness.reports.push(message)
+                  if (message && message.t === 'page-ready') {
+                    queueMicrotask(() => {
+                      port.__pushConfig(window.__harness.config)
+                      window.__harness.configured = true
+                    })
+                  }
+                },
+                onMessage: { addListener: (fn) => listeners.push(fn) },
+                onDisconnect: { addListener: () => {} },
+                disconnect() {},
+                /** 测试用：扮演 background 主动下发新配置。 */
+                __pushConfig(config) {
+                  for (const listener of listeners) listener({ t: 'config', config })
+                },
+              }
+              window.__harness.port = port
+              return port
+            },
+          },
+        },
+      })
+    </script>
+
+    <!-- 顺序与 manifest.json 里一致：inject 先装 hook，bridge 随后把配置推进来 -->
+    <script src="/dist/content/inject.js"></script>
+    <script src="/dist/content/bridge.js"></script>
+    <script src="/harness.js"></script>
+  </body>
+</html>

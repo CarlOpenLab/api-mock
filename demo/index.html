@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>API Mock 实验台</title>
+    <style>
+      :root {
+        --bg: #ffffff;
+        --bg-alt: #f6f7f9;
+        --fg: #16181d;
+        --fg-muted: #6b7280;
+        --border: #e3e6eb;
+        --accent: #2563eb;
+        --ok: #15803d;
+        --bad: #dc2626;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1e2023;
+          --bg-alt: #26292d;
+          --fg: #e6e8eb;
+          --fg-muted: #9aa1ab;
+          --border: #34383e;
+          --accent: #4d8bf5;
+          --ok: #4ade80;
+          --bad: #f87171;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0 auto;
+        padding: 32px 24px 80px;
+        max-width: 880px;
+        background: var(--bg);
+        color: var(--fg);
+        font: 14px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Microsoft YaHei", sans-serif;
+      }
+      h1 { margin: 0 0 4px; font-size: 22px; }
+      h2 { margin: 32px 0 10px; font-size: 15px; }
+      p { margin: 0 0 12px; color: var(--fg-muted); }
+      ol { margin: 0 0 20px; padding-left: 20px; color: var(--fg-muted); }
+      ol li { margin-bottom: 4px; }
+      code {
+        padding: 1px 5px;
+        border-radius: 4px;
+        background: var(--bg-alt);
+        font-family: var(--mono);
+        font-size: 12px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+        gap: 8px;
+      }
+      button {
+        padding: 8px 12px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg-alt);
+        color: var(--fg);
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      button:hover { border-color: var(--accent); color: var(--accent); }
+      button small { display: block; color: var(--fg-muted); font-size: 11px; }
+      button:hover small { color: inherit; opacity: 0.75; }
+      #log {
+        margin-top: 12px;
+        padding: 0;
+        list-style: none;
+        font-family: var(--mono);
+        font-size: 12px;
+      }
+      #log li {
+        display: grid;
+        grid-template-columns: 60px 1fr auto;
+        gap: 10px;
+        padding: 5px 8px;
+        border-bottom: 1px solid var(--border);
+      }
+      #log .ok { color: var(--ok); }
+      #log .bad { color: var(--bad); }
+      #log .body {
+        grid-column: 1 / -1;
+        padding-left: 70px;
+        color: var(--fg-muted);
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+      .hint {
+        padding: 10px 14px;
+        border-left: 3px solid var(--accent);
+        background: var(--bg-alt);
+        color: var(--fg-muted);
+      }
+    </style>
+  </head>
+  <body>
+    <h1>API Mock 实验台</h1>
+    <p>用这个页面点按钮发请求，然后在 DevTools 里看 API Mock 面板怎么处理它们。</p>
+
+    <h2>怎么开始</h2>
+    <ol>
+      <li><code>pnpm build</code></li>
+      <li>
+        打开 <code>chrome://extensions</code> → 打开「开发者模式」→「加载已解压的扩展程序」→
+        选本项目的 <code>dist/</code> 目录
+      </li>
+      <li>页面装好插件后要刷新一次才会被接管</li>
+      <li>按 F12 打开 DevTools，切到 <strong>API Mock</strong> 面板</li>
+    </ol>
+
+    <p class="hint">
+      默认状态下什么都没被改写，所有按钮都会打出真实响应。想看改写效果，先在面板里建一条规则
+      （把 URL 模式填成 <code>http://localhost:8787/api/*</code> 最省事），再回来点按钮。
+    </p>
+
+    <h2>fetch</h2>
+    <div class="grid" id="fetch-buttons"></div>
+
+    <h2>XMLHttpRequest</h2>
+    <div class="grid" id="xhr-buttons"></div>
+
+    <h2>结果</h2>
+    <p><button id="clear-log" style="display: inline-block">清空日志</button></p>
+    <ul id="log"></ul>
+
+    <script>
+      const ENDPOINTS = [
+        { path: '/api/plain', label: '普通 JSON', note: '对照组' },
+        { path: '/api/merge', label: '带数组的 JSON', note: '用「合并 JSON」改 data' },
+        { path: '/api/status', label: '正常接口', note: '用规则把它改成 500' },
+        { path: '/api/headers', label: '带自定义响应头', note: 'x-drop / x-keep' },
+        { path: '/api/delay', label: '普通接口', note: '加 3 秒延迟' },
+        { path: '/api/neterr', label: '普通接口', note: '改成网络错误' },
+        { path: '/api/timeout', label: '普通接口', note: '改成超时' },
+        { path: '/api/mock', label: '普通接口', note: '改成直接伪造（不发请求）' },
+        { path: '/api/stream', label: '分块流式响应', note: '只改状态码时流不该被打断' },
+      ]
+
+      const log = document.getElementById('log')
+
+      function addRow(method, url, ok, status, detail, body) {
+        const item = document.createElement('li')
+        item.innerHTML =
+          `<span class="${ok ? 'ok' : 'bad'}">${method}</span>` +
+          `<span>${url} — ${detail}</span>` +
+          `<span class="${ok ? 'ok' : 'bad'}">${status}</span>`
+        if (body) {
+          const pre = document.createElement('div')
+          pre.className = 'body'
+          pre.textContent = body
+          item.appendChild(pre)
+        }
+        log.prepend(item)
+      }
+
+      async function runFetch(path) {
+        const started = performance.now()
+        try {
+          const response = await fetch(path)
+          const text = await response.text()
+          const elapsed = Math.round(performance.now() - started)
+          addRow('GET', path, response.ok, response.status, `${elapsed} ms`, text.slice(0, 400))
+        } catch (error) {
+          const elapsed = Math.round(performance.now() - started)
+          addRow('GET', path, false, error.name, `${elapsed} ms`, error.message)
+        }
+      }
+
+      function runXhr(path) {
+        const started = performance.now()
+        const xhr = new XMLHttpRequest()
+        xhr.open('GET', path)
+        xhr.onloadend = () => {
+          const elapsed = Math.round(performance.now() - started)
+          const ok = xhr.status >= 200 && xhr.status < 400
+          const detail = xhr.status === 0 ? '没有响应（网络错误/超时）' : `${elapsed} ms`
+          addRow('XHR', path, ok, xhr.status || 'ERR', detail, (xhr.responseText || '').slice(0, 400))
+        }
+        xhr.send()
+      }
+
+      async function runEcho() {
+        const started = performance.now()
+        try {
+          const response = await fetch('/api/echo', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ hello: 'world', at: Date.now() }),
+          })
+          const text = await response.text()
+          const elapsed = Math.round(performance.now() - started)
+          addRow('POST', '/api/echo', response.ok, response.status, `${elapsed} ms`, text.slice(0, 400))
+        } catch (error) {
+          addRow('POST', '/api/echo', false, error.name, '', error.message)
+        }
+      }
+
+      function buildButtons(containerId, handler) {
+        const container = document.getElementById(containerId)
+        for (const endpoint of ENDPOINTS.concat(
+          containerId === 'fetch-buttons'
+            ? [{ path: '/api/echo', label: 'POST 回显请求体', note: '验请求体捕获', method: 'POST' }]
+            : [],
+        )) {
+          const button = document.createElement('button')
+          button.innerHTML = `${endpoint.method ?? 'GET'} ${endpoint.path}<small>${endpoint.note}</small>`
+          button.onclick = () => (endpoint.method === 'POST' ? runEcho() : handler(endpoint.path))
+          container.appendChild(button)
+        }
+      }
+
+      buildButtons('fetch-buttons', runFetch)
+      buildButtons('xhr-buttons', runXhr)
+      document.getElementById('clear-log').onclick = () => (log.innerHTML = '')
+    </script>
+  </body>
+</html>

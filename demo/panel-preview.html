@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>API Mock 面板预览</title>
+    <!-- 用构建产物里的那份样式和 bundle，看到的就是真正会装进扩展的东西 -->
+    <link rel="stylesheet" href="/dist/assets/panel.css" />
+    <style>
+      /* 预览页本身不该占走面板的尺寸 */
+      html, body { margin: 0; height: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="/chrome-stub.js"></script>
+    <script type="module" src="/dist/panel.js"></script>
+  </body>
+</html>
